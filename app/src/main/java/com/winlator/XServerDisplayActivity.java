@@ -556,7 +556,10 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
         }
 
         guestProgramLauncherComponent.setEnvVars(envVars);
-        guestProgramLauncherComponent.setTerminationCallback((status) -> exit());
+                guestProgramLauncherComponent.setTerminationCallback((status) -> {
+            if (System.currentTimeMillis() - tosStartTime < 15000) exit();
+            else runOnUiThread(() -> AppUtils.restartActivity(this));
+        });
         environment.addComponent(guestProgramLauncherComponent);
 
         if (isGenerateWineprefix()) {
