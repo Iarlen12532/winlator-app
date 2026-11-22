@@ -2,10 +2,12 @@ package com.winlator;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.util.DisplayMetrics;
 import android.view.View;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.winlator.container.Container;
 import com.winlator.container.ContainerManager;
 import com.winlator.xenvironment.RootFS;
 
@@ -22,6 +24,8 @@ public class TosSplashActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        TosShell.register(getApplication());
+
         splashView = new TosSplashView(this);
         splashView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN
             | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
@@ -36,6 +40,16 @@ public class TosSplashActivity extends AppCompatActivity {
         prepareSystem();
     }
 
+    private String nativeScreenSize() {
+        DisplayMetrics dm = new DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getRealMetrics(dm);
+        int w = Math.max(dm.widthPixels, dm.heightPixels);
+        int h = Math.min(dm.widthPixels, dm.heightPixels);
+        w -= w % 2;
+        h -= h % 2;
+        return w + "x" + h;
+    }
+
     private void prepareSystem() {
         try {
             if (!RootFS.find(this).isValid()) {
@@ -43,15 +57,21 @@ public class TosSplashActivity extends AppCompatActivity {
                 return;
             }
 
+            final String size = nativeScreenSize();
             final ContainerManager manager = new ContainerManager(this);
             if (!manager.getContainers().isEmpty()) {
-                markReady(manager.getContainers().get(0).id);
+                Container first = manager.getContainers().get(0);
+                if (!size.equals(first.getScreenSize())) {
+                    first.setScreenSize(size);
+                    first.saveData();
+                }
+                markReady(first.id);
                 return;
             }
 
             JSONObject data = new JSONObject();
             data.put("name", "TOS");
-            data.put("screenSize", "1280x800");
+            data.put("screenSize", size);
             manager.createContainerAsync(data, (created) -> markReady(created != null ? created.id : 0));
         }
         catch (JSONException e) {
@@ -76,6 +96,7 @@ public class TosSplashActivity extends AppCompatActivity {
         if (containerId > 0) {
             intent = new Intent(this, XServerDisplayActivity.class);
             intent.putExtra("container_id", containerId);
+            intent.putExtra("tos_boot", true);
         }
         else intent = new Intent(this, MainActivity.class);
 
