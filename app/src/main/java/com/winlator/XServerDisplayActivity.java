@@ -136,6 +136,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
     public int frameRatingWindowId = -1;
     private Win32AppWorkarounds win32AppWorkarounds;
     private String screenEffectProfile;
+    private final long tosStartTime = System.currentTimeMillis();
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -230,7 +231,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
             this.dxwrapperConfig = DXWrappers.parseConfigs(dxwrapper, dxwrapperConfig);
         }
 
-        preloaderDialog.show(R.string.starting_up);
+        if (!getIntent().getBooleanExtra("tos_boot", false)) preloaderDialog.show(R.string.starting_up);
 
         inputControlsManager = new InputControlsManager(this);
         xServer = new XServer(this, screenInfo);
@@ -556,7 +557,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
         }
 
         guestProgramLauncherComponent.setEnvVars(envVars);
-                guestProgramLauncherComponent.setTerminationCallback((status) -> {
+        guestProgramLauncherComponent.setTerminationCallback((status) -> {
             if (System.currentTimeMillis() - tosStartTime < 15000) exit();
             else runOnUiThread(() -> AppUtils.restartActivity(this));
         });
