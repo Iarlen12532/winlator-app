@@ -3,9 +3,15 @@ package com.winlator;
 import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.Application;
+import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.BatteryManager;
@@ -17,26 +23,31 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.animation.BounceInterpolator;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.PopupMenu;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import com.winlator.xserver.Window;
 import com.winlator.xserver.WindowManager;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Locale;
 
 public class TosShell extends FrameLayout {
     public static final String TAG = "tos_shell";
     private static boolean registered = false;
+    private static final HashMap<String, Bitmap> ICONS = new HashMap<>();
 
     private final Activity activity;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -47,10 +58,12 @@ public class TosShell extends FrameLayout {
     private TextView clockView;
     private TextView batteryView;
     private FrameLayout cover;
+    private CursorView cursor;
     private ValueAnimator coverAnimator;
     private boolean coverHidden = false;
     private TosSettingsWindow settingsWindow;
     private TosControlCenter controlCenter;
+    private FrameLayout tMenu;
     private View fullscreenView;
     private WebChromeClient.CustomViewCallback fullscreenCallback;
 
@@ -62,7 +75,7 @@ public class TosShell extends FrameLayout {
         }
     };
 
-    // ------------------------------------------------------------------ registro
+    // ---------------------------------------------------------------- registro
 
     public static void register(Application app) {
         if (registered) return;
@@ -97,7 +110,6 @@ public class TosShell extends FrameLayout {
         return shell instanceof TosShell ? (TosShell) shell : null;
     }
 
-    /** Usado pelo XServerDisplayActivity: true quando o mouse esta sobre a interface do TOS. */
     public static boolean isPointerOverUi(Activity activity, MotionEvent event) {
         TosShell shell = find(activity);
         if (shell == null) return false;
@@ -109,14 +121,13 @@ public class TosShell extends FrameLayout {
         return over;
     }
 
-    /** Usado pelo XServerDisplayActivity: true quando o teclado deve ir para um campo do TOS. */
     public static boolean wantsKeyboard(Activity activity) {
         if (find(activity) == null) return false;
         View focus = activity.getCurrentFocus();
         return focus instanceof EditText || focus instanceof WebView;
     }
 
-    // ------------------------------------------------------------------ construcao
+    // ---------------------------------------------------------------- construcao
 
     public TosShell(Activity activity) {
         super(activity);
@@ -126,6 +137,9 @@ public class TosShell extends FrameLayout {
         buildMenuBar();
         buildDock();
         buildCover();
+        cursor = new CursorView(activity);
+        cursor.setVisibility(View.GONE);
+        addView(cursor, new FrameLayout.LayoutParams(px(18), px(26)));
         handler.postDelayed(() -> hideCover(), 25000);
     }
 
@@ -151,33 +165,13 @@ public class TosShell extends FrameLayout {
         menuBar.setBackgroundColor(Color.BLACK);
         menuBar.setClickable(true);
 
-        final TextView logo = new TextView(activity);
+        TextView logo = new TextView(activity);
         logo.setText("T");
         logo.setTextColor(Color.WHITE);
         logo.setTextSize(TypedValue.COMPLEX_UNIT_PX, px(20));
         logo.setTypeface(Typeface.create(Typeface.SERIF, Typeface.BOLD_ITALIC));
         logo.setPadding(px(10), 0, px(10), 0);
-        logo.setOnClickListener(v -> {
-            PopupMenu popup = new PopupMenu(activity, logo);
-            popup.getMenu().add(0, 1, 0, "Sobre o TOS");
-            popup.getMenu().add(0, 2, 1, "Ajustes do Sistema...");
-            popup.getMenu().add(0, 3, 2, "Sair do TOS");
-            popup.setOnMenuItemClickListener(item -> {
-                switch (item.getItemId()) {
-                    case 1:
-                        Toast.makeText(activity, "TOS 0.1 - feito sobre o Winlator", Toast.LENGTH_LONG).show();
-                        break;
-                    case 2:
-                        openSettings();
-                        break;
-                    case 3:
-                        activity.finish();
-                        break;
-                }
-                return true;
-            });
-            popup.show();
-        });
+        logo.setOnClickListener(v -> toggleTMenu());
         menuBar.addView(logo);
         menuBar.addView(label("TOS", true));
         menuBar.addView(label("Arquivo", false));
@@ -215,11 +209,10 @@ public class TosShell extends FrameLayout {
         bg.setStroke(Math.max(1, px(1)), 0x66FFFFFF);
         dock.setBackground(bg);
 
-        dock.addView(dockItem(TosIconView.FINDER, 0xFF7CC8F5, 0xFF1C6FD1, () -> soon("Finder")));
-        dock.addView(dockItem(TosIconView.LAUNCHPAD, 0xFFB4E3F8, 0xFF23A3E8, () -> soon("Launchpad")));
-        dock.addView(glyphIcon(TosGlyph.COMPASS, 0xFF5AC8FA, 0xFF0A64D8, () -> openBrowser()));
-        dock.addView(dockItem(TosIconView.INSTALL, 0xFF52B8EE, 0xFF033A72, () -> soon("Instalar aplicativos")));
-        dock.addView(dockItem(TosIconView.SETTINGS, 0xFF9AA7B0, 0xFF4B5C66, () -> openSettings()));
+        dock.addView(imageIcon("tos_finder.png", () -> soon("Finder")));
+        dock.addView(imageIcon("tos_launchpad.png", () -> soon("Launchpad")));
+        dock.addView(imageIcon("tos_chrome.png", () -> openBrowser()));
+        dock.addView(imageIcon("tos_settings.png", () -> openSettings()));
 
         int size = TosPrefs.dockPx(activity);
         View divider = new View(activity);
@@ -228,7 +221,8 @@ public class TosShell extends FrameLayout {
         dlp.setMargins(px(6), 0, px(6), 0);
         dock.addView(divider, dlp);
 
-        dock.addView(dockItem(TosIconView.TRASH, 0xFFB4E3F8, 0xFF5AA9D6, () -> soon("Lixeira")));
+        dock.addView(imageIcon("tos_downloads.png", () -> soon("Downloads")));
+        dock.addView(imageIcon("tos_trash.png", () -> soon("Lixeira")));
 
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
@@ -236,26 +230,27 @@ public class TosShell extends FrameLayout {
         addView(dock, lp);
     }
 
-    private View dockItem(int type, int top, int bottom, Runnable action) {
-        TosIconView v = new TosIconView(activity, type, top, bottom);
-        attachDockBehavior(v, action);
-        return v;
+    private Bitmap icon(String file) {
+        Bitmap b = ICONS.get(file);
+        if (b == null) {
+            try (InputStream in = activity.getAssets().open(file)) {
+                b = BitmapFactory.decodeStream(in);
+            }
+            catch (IOException e) {
+                b = null;
+            }
+            if (b != null) ICONS.put(file, b);
+        }
+        return b;
     }
 
-    private View glyphIcon(int glyph, int top, int bottom, Runnable action) {
-        int size = TosPrefs.dockPx(activity);
-        FrameLayout f = new FrameLayout(activity);
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{top, bottom});
-        bg.setCornerRadius(size * 0.23f);
-        bg.setStroke(Math.max(1, px(1)), 0x55FFFFFF);
-        f.setBackground(bg);
-        int g = (int) (size * 0.62f);
-        f.addView(new TosGlyph(activity, glyph, Color.WHITE), new FrameLayout.LayoutParams(g, g, Gravity.CENTER));
-        attachDockBehavior(f, action);
-        return f;
-    }
+    private View imageIcon(String file, final Runnable action) {
+        ImageView v = new ImageView(activity);
+        Bitmap b = icon(file);
+        if (b != null) v.setImageBitmap(b);
+        else v.setBackgroundColor(0x55FFFFFF);
+        v.setScaleType(ImageView.ScaleType.FIT_CENTER);
 
-    private void attachDockBehavior(View v, final Runnable action) {
         final int size = TosPrefs.dockPx(activity);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
         lp.setMargins(px(6), 0, px(6), 0);
@@ -270,6 +265,7 @@ public class TosShell extends FrameLayout {
                 view.animate().translationY(0).setInterpolator(new BounceInterpolator()).setDuration(380).start()).start();
             action.run();
         });
+        return v;
     }
 
     public void applyScale() {
@@ -279,6 +275,7 @@ public class TosShell extends FrameLayout {
         buildDock();
         updateStatus();
         cover.bringToFront();
+        cursor.bringToFront();
     }
 
     public int bottomInset() {
@@ -289,26 +286,143 @@ public class TosShell extends FrameLayout {
         Toast.makeText(activity, name + ": em construcao", Toast.LENGTH_SHORT).show();
     }
 
-    // ------------------------------------------------------------------ mouse sobre a interface
+    // ---------------------------------------------------------------- cursor e deteccao da interface
 
-    private boolean hit(View v, float x, float y) {
-        if (v == null || v.getVisibility() != View.VISIBLE || v.getParent() == null) return false;
-        int[] loc = new int[2];
-        v.getLocationOnScreen(loc);
-        return x >= loc[0] && x <= loc[0] + v.getWidth() && y >= loc[1] && y <= loc[1] + v.getHeight();
+    private static class CursorView extends View {
+        private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path path = new Path();
+
+        CursorView(Context context) {
+            super(context);
+            fill.setColor(Color.WHITE);
+            line.setColor(Color.BLACK);
+            line.setStyle(Paint.Style.STROKE);
+            line.setStrokeJoin(Paint.Join.ROUND);
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            float s = getHeight() / 20f;
+            line.setStrokeWidth(Math.max(1.5f, s * 1.2f));
+            path.reset();
+            path.moveTo(1 * s, 1 * s);
+            path.lineTo(1 * s, 16 * s);
+            path.lineTo(5 * s, 12.5f * s);
+            path.lineTo(8 * s, 19 * s);
+            path.lineTo(10.5f * s, 18 * s);
+            path.lineTo(7.5f * s, 11.5f * s);
+            path.lineTo(12.5f * s, 11.5f * s);
+            path.close();
+            c.drawPath(path, fill);
+            c.drawPath(path, line);
+        }
     }
 
-    public boolean isOverUi(float x, float y) {
+    public void setCursor(boolean visible, float x, float y) {
+        if (visible) {
+            cursor.setVisibility(View.VISIBLE);
+            cursor.setTranslationX(x);
+            cursor.setTranslationY(y);
+        }
+        else cursor.setVisibility(View.GONE);
+    }
+
+    private boolean hitLocal(View v, float x, float y) {
+        if (v == null || v.getVisibility() != View.VISIBLE || v.getParent() == null) return false;
+        float left = 0;
+        float top = 0;
+        View cur = v;
+        while (cur != null && cur != this) {
+            left += cur.getLeft() + cur.getTranslationX();
+            top += cur.getTop() + cur.getTranslationY();
+            ViewParent p = cur.getParent();
+            cur = (p instanceof View) ? (View) p : null;
+        }
+        return x >= left && x <= left + v.getWidth() && y >= top && y <= top + v.getHeight();
+    }
+
+    public boolean isOverUiLocal(float x, float y) {
         if (fullscreenView != null) return true;
         if (!coverHidden) return true;
-        if (hit(menuBar, x, y) || hit(dock, x, y)) return true;
+        if (hitLocal(menuBar, x, y) || hitLocal(dock, x, y)) return true;
         for (int i = 0; i < windowLayer.getChildCount(); i++) {
-            if (hit(windowLayer.getChildAt(i), x, y)) return true;
+            if (hitLocal(windowLayer.getChildAt(i), x, y)) return true;
         }
         return false;
     }
 
-    // ------------------------------------------------------------------ janelas
+    public boolean isOverUi(float rawX, float rawY) {
+        int[] loc = new int[2];
+        getLocationOnScreen(loc);
+        return isOverUiLocal(rawX - loc[0], rawY - loc[1]);
+    }
+
+    // ---------------------------------------------------------------- menu do T
+
+    private View menuItem(String text, final Runnable action) {
+        TextView t = new TextView(activity);
+        t.setText(text);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_PX, px(15));
+        t.setPadding(px(14), px(10), px(14), px(10));
+        t.setOnHoverListener((view, e) -> {
+            if (e.getAction() == MotionEvent.ACTION_HOVER_ENTER) {
+                GradientDrawable h = new GradientDrawable();
+                h.setColor(0x883B82F6);
+                h.setCornerRadius(px(8));
+                view.setBackground(h);
+            }
+            else if (e.getAction() == MotionEvent.ACTION_HOVER_EXIT) view.setBackground(null);
+            return false;
+        });
+        t.setOnClickListener(v -> {
+            closeTMenu();
+            action.run();
+        });
+        return t;
+    }
+
+    private void toggleTMenu() {
+        if (tMenu != null && tMenu.getParent() != null) {
+            closeTMenu();
+            return;
+        }
+        FrameLayout scrim = new FrameLayout(activity);
+        scrim.setClickable(true);
+        scrim.setOnClickListener(v -> closeTMenu());
+
+        LinearLayout panel = new LinearLayout(activity);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(px(6), px(6), px(6), px(6));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xF0202428);
+        bg.setCornerRadius(px(12));
+        bg.setStroke(Math.max(1, px(1)), 0x66FFFFFF);
+        panel.setBackground(bg);
+        panel.setClickable(true);
+
+        panel.addView(menuItem("Sobre o TOS", () ->
+            Toast.makeText(activity, "TOS 0.1 - feito sobre o Winlator", Toast.LENGTH_LONG).show()));
+        panel.addView(menuItem("Ajustes do Sistema...", () -> openSettings()));
+        panel.addView(menuItem("Sair do TOS", () -> activity.finish()));
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(px(240), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.LEFT);
+        lp.leftMargin = px(10);
+        lp.topMargin = px(34);
+        scrim.addView(panel, lp);
+
+        tMenu = scrim;
+        windowLayer.addView(scrim, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
+    private void closeTMenu() {
+        if (tMenu == null) return;
+        windowLayer.removeView(tMenu);
+        tMenu = null;
+    }
+
+    // ---------------------------------------------------------------- janelas
 
     public void openWindow(TosWindow w) {
         int sw = getWidth() > 0 ? getWidth() : getResources().getDisplayMetrics().widthPixels;
@@ -379,7 +493,7 @@ public class TosShell extends FrameLayout {
         v.animate().alpha(0f).setDuration(120).withEndAction(() -> windowLayer.removeView(v)).start();
     }
 
-    // ------------------------------------------------------------------ tela cheia (ex.: video do YouTube)
+    // ---------------------------------------------------------------- tela cheia
 
     public void enterFullscreen(View view, WebChromeClient.CustomViewCallback callback) {
         exitFullscreen();
@@ -402,7 +516,7 @@ public class TosShell extends FrameLayout {
         dock.setVisibility(View.VISIBLE);
     }
 
-    // ------------------------------------------------------------------ tela de espera do boot
+    // ---------------------------------------------------------------- tela de espera do boot
 
     private void buildCover() {
         cover = new FrameLayout(activity);
@@ -450,6 +564,7 @@ public class TosShell extends FrameLayout {
             hideCover();
             return;
         }
+        TosPointerGate.attach(this, xActivity.getXServer());
         xActivity.getXServer().windowManager.addOnWindowModificationListener(new WindowManager.OnWindowModificationListener() {
             private boolean done = false;
 
@@ -469,7 +584,7 @@ public class TosShell extends FrameLayout {
         });
     }
 
-    // ------------------------------------------------------------------ relogio e bateria
+    // ---------------------------------------------------------------- relogio e bateria
 
     private void updateStatus() {
         if (clockView == null || batteryView == null) return;
