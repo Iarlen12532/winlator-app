@@ -1,7 +1,9 @@
 package com.winlator;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.preference.PreferenceManager;
 import android.util.DisplayMetrics;
 import android.view.View;
 
@@ -25,6 +27,7 @@ public class TosSplashActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         TosShell.register(getApplication());
+        initMouseDefaults();
 
         splashView = new TosSplashView(this);
         splashView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN
@@ -38,6 +41,16 @@ public class TosSplashActivity extends AppCompatActivity {
             tryFinish();
         });
         prepareSystem();
+    }
+
+    private void initMouseDefaults() {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        if (!prefs.getBoolean("tos_mouse_defaults_v1", false)) {
+            prefs.edit()
+                .putBoolean("capture_pointer_on_external_mouse", false)
+                .putBoolean("tos_mouse_defaults_v1", true)
+                .apply();
+        }
     }
 
     private String nativeScreenSize() {
