@@ -78,6 +78,7 @@ public class TosSplashActivity extends AppCompatActivity {
                     first.setScreenSize(size);
                     first.saveData();
                 }
+                TosWallpaper.install(this, first);
                 markReady(first.id);
                 return;
             }
@@ -85,7 +86,10 @@ public class TosSplashActivity extends AppCompatActivity {
             JSONObject data = new JSONObject();
             data.put("name", "TOS");
             data.put("screenSize", size);
-            manager.createContainerAsync(data, (created) -> markReady(created != null ? created.id : 0));
+            manager.createContainerAsync(data, (created) -> {
+                if (created != null) TosWallpaper.install(this, created);
+                markReady(created != null ? created.id : 0);
+            });
         }
         catch (JSONException e) {
             markReady(0);
